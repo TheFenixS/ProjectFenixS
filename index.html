@@ -10,9 +10,9 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
   window.__ENV__ = {
-    inventoryApi: '%VITE_INVENTORY_API%',
-    pumpApi: '%VITE_PUMP_API%',
-    portfolioApi: '%VITE_PORTFOLIO_API%',
+    inventoryApi: typeof __INVENTORY_API__ !== 'undefined' ? __INVENTORY_API__ : 'http://localhost:8000',
+    pumpApi: typeof __PUMP_API__ !== 'undefined' ? __PUMP_API__ : 'http://localhost:8001',
+    portfolioApi: typeof __PORTFOLIO_API__ !== 'undefined' ? __PORTFOLIO_API__ : 'http://localhost:8002',
   };
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
