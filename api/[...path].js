@@ -7,14 +7,23 @@ export default async function handler(req, res) {
   const targetPath = parts.slice(1).join('/'); 
 
   let BASE_URL = '';
-  if (service === 'inventory') BASE_URL = process.env.HF_INVENTORY_URL;
-  else if (service === 'pump') BASE_URL = process.env.HF_PUMP_URL;
-  else if (service === 'portfolio') BASE_URL = process.env.HF_PORTFOLIO_URL;
+  let TOKEN = ''; // Muutettu: Token määritellään tyhjäksi alussa
 
-  const TOKEN = process.env.HF_TOKEN;
+  // Määritellään oikea URL ja oikea Token palvelun mukaan
+  if (service === 'inventory') {
+    BASE_URL = process.env.HF_INVENTORY_URL;
+    TOKEN = process.env.HF_INVENTORY_TOKEN;
+  } else if (service === 'pump') {
+    BASE_URL = process.env.HF_PUMP_URL;
+    TOKEN = process.env.HF_PUMP_TOKEN;
+  } else if (service === 'portfolio') {
+    BASE_URL = process.env.HF_PORTFOLIO_URL;
+    TOKEN = process.env.HF_PORTFOLIO_TOKEN;
+  }
 
+  // Tarkistetaan, että sekä URL että Token löytyivät
   if (!BASE_URL || !TOKEN) {
-    return res.status(500).json({ error: 'Puuttuvat ympäristömuuttujat', service_requested: service });
+    return res.status(500).json({ error: 'Puuttuvat ympäristömuuttujat (URL tai Token)', service_requested: service });
   }
 
   const cleanBase = BASE_URL.replace(/\/+$/, '');
@@ -25,6 +34,7 @@ export default async function handler(req, res) {
       method: req.method,
       headers: {
         'Content-Type': 'application/json',
+        // Tässä koodi lisää Bearer-sanan automaattisesti!
         'Authorization': `Bearer ${TOKEN}`,
       }
     };
