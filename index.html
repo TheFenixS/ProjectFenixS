@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fenix Tools - CS2 Tracking Suite</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  window.__ENV__ = {
+    inventoryApi: '%VITE_INVENTORY_API%',
+    pumpApi: '%VITE_PUMP_API%',
+    portfolioApi: '%VITE_PORTFOLIO_API%',
+  };
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body, #root { min-height: 100vh; }
+  body { background: #0A0C0F; color: #E8EBF0; font-family: 'Inter', system-ui, sans-serif; overflow-x: hidden; }
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #FF6B2B44; border-radius: 3px; }
+  #bg-video {
+    position: fixed; top: 50%; left: 50%;
+    min-width: 100%; min-height: 100%;
+    width: auto; height: auto;
+    transform: translate(-50%, -50%) scale(1.08);
+    z-index: 0;
+    filter: blur(14px) brightness(0.18) saturate(1.4);
+    pointer-events: none;
+  }
+  #root { position: relative; z-index: 1; }
+  .glass {
+    background: rgba(15, 18, 22, 0.84);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,107,43,0.11);
+    border-radius: 10px;
+  }
+  input, button, textarea { font-family: 'Inter', system-ui, sans-serif; }
+  input:focus, textarea:focus { outline: none; border-color: #FF6B2B !important; }
+  @keyframes fadeIn { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .fade-in { animation: fadeIn 0.3s ease both; }
+  #bg-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background: radial-gradient(circle at top right, rgba(255,107,43,0.18), transparent 24%),
+                radial-gradient(circle at 10% 40%, rgba(255,255,255,0.04), transparent 14%);
+    mix-blend-mode: screen;
+  }
+  .header-stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(180px, 1fr));
+    gap: 12px;
+    margin-top: 18px;
+  }
+  .header-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,107,43,0.14);
+    border-radius: 16px;
+    padding: 16px 18px;
+    min-height: 96px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .header-card-title {
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.64);
+    margin-bottom: 10px;
+  }
+  .header-card-value {
+    font-family: 'Bebas Neue', Impact, sans-serif;
+    font-size: 30px;
+    color: #FFFFFF;
+    line-height: 1;
+  }
+  .yt-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 14px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.06);
+    color: #fff;
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .yt-chip svg { width: 16px; height: 16px; }
+</style>
+</head>
+<body>
+
+<!-- Background video: sourced from the original Hugging Face dataset 'YtFenixS/Fenixmedia' -->
+<video id="bg-video" autoplay muted loop playsinline poster="https://huggingface.co/datasets/YtFenixS/Fenixmedia/resolve/main/Fenixengine.jpg" crossorigin="anonymous">
+  <source src="https://huggingface.co/datasets/YtFenixS/Fenixmedia/resolve/main/Fenixengine.mp4" type="video/mp4" />
+  <!-- Fallback image will show if video cannot autoplay or load. The poster points to the same dataset. -->
+</video>
+
+<div id="bg-overlay"></div>
+
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useCallback, useEffect } = React;
+
+// ─── API ROUTES (Three backends) ─────────────────────────────────────────────
+const API_ROUTES = {
+      inventory: window.__ENV__?.inventoryApi || "http://localhost:8000",
+      pump: window.__ENV__?.pumpApi || "http://localhost:8001",
+      portfolio: window.__ENV__?.portfolioApi || "http://localhost:8002",
+};
+
+const F = {
+  bg: '#0A0C0F', accent: '#FF6B2B', text: '#E8EBF0', muted: '#6B7585',
+  border: 'rgba(255,107,43,0.11)', accentGlow: 'rgba(255,107,43,0.14)',
+};
+
+function Spinner({ size = 18 }) {
+  return (
+    <div style={{
+      width: size, height: size, border: `2px solid rgba(255,107,43,0.15)`,
+      borderTopColor: F.accent, borderRadius: '50%', animation: 'spin 0.7s linear infinite',
+      display: 'inline-block', flexShrink: 0
+    }} />
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// INVENTORY VIEW
+// ════════════════════════════════════════════════════════════════════════════════
+
+function InventoryView() {
+  const [url, setUrl] = useState('https://steamcommunity.com/id/NotnFaZe');
+  const [loading, setLoading] = useState(false);
+  const [items, setItems] = useState([]);
+  const [error, setError] = useState('');
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 20;
+
+  const handleScan = useCallback(async () => {
+    if (!url.trim() || loading) return;
+    setLoading(true);
+    setError('');
+    
+    try {
+      const res = await fetch(`${API_ROUTES.inventory}/api/scrape`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ steam_url: url.trim(), force: false }),
+      });
+      
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.detail || `HTTP ${res.status}`);
+      }
+      
+      const d = await res.json();
+      setItems(d.items);
+      setPage(1);
+    } catch (e) {
+      setError(e.message || 'Failed to fetch inventory');
+    } finally {
+      setLoading(false);
+    }
+  }, [url, loading]);
+
+  const stats = { count: items.length, value: items.reduce((s, i) => s + i.price, 0) };
+  const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+  const pageItems = items.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  return (
+    <div className="glass" style={{ padding: '20px', marginBottom: 22 }}>
+      {error && (
+        <div style={{
+          padding: '9px 15px', borderRadius: 7, background: 'rgba(255,68,68,0.1)',
+          border: '1px solid rgba(255,68,68,0.28)', color: '#FF6868', fontSize: 13, marginBottom: 15
+        }}>
+          ⚠ {error}
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
+        <div style={{ background: 'rgba(255,255,255,0.03)', padding: '16px', borderRadius: 7, border: `1px solid ${F.border}` }}>
+          <div style={{ fontSize: 10, color: F.muted, textTransform: 'uppercase', marginBottom: 6 }}>Total Items</div>
+          <div style={{ fontSize: 32, fontWeight: 700, color: F.text, fontFamily: "'Bebas Neue', Impact, sans-serif" }}>{stats.count}</div>
+        </div>
+        <div style={{ background: F.accentGlow, padding: '16px', borderRadius: 7, border: `1px solid ${F.accent}` }}>
+          <div style={{ fontSize: 10, color: F.accent, textTransform: 'uppercase', marginBottom: 6 }}>Total Value</div>
+          <div style={{ fontSize: 32, fontWeight: 700, color: F.accent, fontFamily: "'Bebas Neue', Impact, sans-serif" }}>
+            ${stats.value.toLocaleString('en-US', { maximumFractionDigits: 2 })}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '50px 3fr 120px 100px 100px', gap: 10, padding: '10px 0', borderBottom: `1px solid ${F.border}`, marginBottom: 10, fontSize: 11, color: F.muted, fontWeight: 600 }}>
+        <div>#</div><div>NAME</div><div>RARITY</div><div>TYPE</div><div style={{ textAlign: 'right' }}>PRICE</div>
+      </div>
+
+      {pageItems.length === 0 ? (
+        <div style={{ padding: '50px 0', textAlign: 'center', color: F.muted, fontSize: 13 }}>
+          No items. Scan a Steam profile to begin.
+        </div>
+      ) : (
+        pageItems.map((item, i) => (
+          <div key={`${item.assetId}-${i}`} style={{ display: 'grid', gridTemplateColumns: '50px 3fr 120px 100px 100px', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: `1px solid rgba(255,255,255,0.022)` }}>
+            <div style={{ fontSize: 11, color: F.muted }}>{(page - 1) * PAGE_SIZE + i + 1}</div>
+            <div style={{ fontSize: 13, color: F.text }}>{item.name}</div>
+            <div style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: `rgba(255,107,43,0.15)`, color: F.accent }}>{item.rarity}</div>
+            <div style={{ fontSize: 12, color: F.muted }}>{item.weaponType}</div>
+            <div style={{ fontSize: 13, fontWeight: 700, textAlign: 'right', color: item.price >= 100 ? F.accent : F.text }}>${item.price.toFixed(2)}</div>
+          </div>
+        ))
+      )}
+
+      {totalPages > 1 && (
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 10, padding: '20px 0', marginTop: 10 }}>
+          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} style={{ padding: '8px 16px', borderRadius: 6, border: `1px solid ${F.border}`, background: 'transparent', color: page === 1 ? F.muted : F.text, cursor: 'pointer' }}>← Prev</button>
+          <span style={{ color: F.muted, alignSelf: 'center' }}>Page <b style={{ color: F.text }}>{page}</b> of {totalPages}</span>
+          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} style={{ padding: '8px 16px', borderRadius: 6, border: `1px solid ${F.border}`, background: 'transparent', color: page === totalPages ? F.muted : F.text, cursor: 'pointer' }}>Next →</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// PUMP DETECTOR VIEW
+// ════════════════════════════════════════════════════════════════════════════════
+
+function PumpView() {
+  const [url, setUrl] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState(null);
+  const [error, setError] = useState('');
+
+  const handleAnalyze = useCallback(async () => {
+    if (!url.trim() || loading) return;
+    setLoading(true);
+    setError('');
+    setData(null);
+    
+    try {
+      const res = await fetch(`${API_ROUTES.pump}/api/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: url.trim() }),
+      });
+      
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.detail || `HTTP ${res.status}`);
+      }
+      
+      const d = await res.json();
+      setData(d);
+    } catch (e) {
+      setError(e.message || 'Failed to analyze');
+    } finally {
+      setLoading(false);
+    }
+  }, [url, loading]);
+
+  return (
+    <div className="glass" style={{ padding: '20px', marginBottom: 22 }}>
+      {error && (
+        <div style={{ padding: '9px 15px', borderRadius: 7, background: 'rgba(255,68,68,0.1)', border: '1px solid rgba(255,68,68,0.28)', color: '#FF6868', fontSize: 13, marginBottom: 15 }}>
+          ⚠ {error}
+        </div>
+      )}
+
+      {data && data.result && (
+        <div style={{ animation: 'fadeIn 0.3s ease' }}>
+          <h3 style={{ color: F.accent, marginBottom: 15, fontSize: 16 }}>{data.name}</h3>
+          
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
+            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '14px', borderRadius: 7, border: `1px solid ${F.border}`, textAlign: 'center' }}>
+              <div style={{ fontSize: 10, color: F.muted, marginBottom: 6 }}>PUMP SCORE</div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: F.accent }}>{data.result.pump_score}</div>
+              <div style={{ fontSize: 10, color: F.muted, marginTop: 6 }}>{data.result.pump_label}</div>
+            </div>
+            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '14px', borderRadius: 7, border: `1px solid ${F.border}`, textAlign: 'center' }}>
+              <div style={{ fontSize: 10, color: F.muted, marginBottom: 6 }}>PRICE</div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: F.text }}>${data.result.price.toFixed(2)}</div>
+              <div style={{ fontSize: 10, color: F.muted, marginTop: 6 }}>USD</div>
+            </div>
+            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '14px', borderRadius: 7, border: `1px solid ${F.border}`, textAlign: 'center' }}>
+              <div style={{ fontSize: 10, color: F.muted, marginBottom: 6 }}>DNA</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: F.text }}>{data.result.dna_label}</div>
+              <div style={{ fontSize: 10, color: F.muted, marginTop: 6 }}>{data.result.dna_score}</div>
+            </div>
+            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '14px', borderRadius: 7, border: `1px solid ${F.border}`, textAlign: 'center' }}>
+              <div style={{ fontSize: 10, color: F.muted, marginBottom: 6 }}>STATUS</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: data.result.is_exploding ? '#FF6B6B' : F.accent }}>{data.result.mode}</div>
+            </div>
+          </div>
+
+          {data.chart_base64 && (
+            <img src={`data:image/png;base64,${data.chart_base64}`} style={{ width: '100%', maxWidth: '100%', borderRadius: 7, border: `1px solid ${F.border}`, marginBottom: 15 }} />
+          )}
+        </div>
+      )}
+
+      {!data && !loading && !error && (
+        <div style={{ padding: '50px 0', textAlign: 'center', color: F.muted, fontSize: 13 }}>
+          Paste a SteamDT item URL to analyze for pump signals.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// PORTFOLIO GRAPH COMPONENT
+// ═══════════════════════════════════════════════════════════════════════════════=
+
+function PortfolioGraph({ userId }) {
+  const canvasRef = React.useRef(null);
+  const chartRef = React.useRef(null);
+  const [range, setRange] = useState('30'); // days: '1','7','30','90','all'
+  const [loading, setLoading] = useState(false);
+  const [explanations, setExplanations] = useState([]);
+
+  const loadData = useCallback(async (days) => {
+    if (!userId) return;
+    setLoading(true);
+    try {
+      const daysParam = days === 'all' ? 0 : parseInt(days, 10);
+      const snapsRes = await fetch(`${API_ROUTES.portfolio}/api/snapshots/${encodeURIComponent(userId)}?days=${daysParam}`);
+      const chRes = await fetch(`${API_ROUTES.portfolio}/api/changes/${encodeURIComponent(userId)}?days=${daysParam}`);
+      const snapsJson = await snapsRes.json().catch(()=>({snapshots:[]}));
+      const chJson = await chRes.json().catch(()=>({changes:[]}));
+      const snaps = snapsJson.snapshots || [];
+      const changes = chJson.changes || [];
+
+      const labels = [];
+      const values = [];
+      for (const s of snaps) {
+        const ts = s.snapshot_time * 1000;
+        labels.push(new Date(ts).toLocaleString());
+        let total = 0;
+        const items = s.items || {};
+        for (const k of Object.keys(items)) {
+          const it = items[k];
+          total += (it.quantity || 0) * (it.avg_price || 0);
+        }
+        values.push(Math.round(total * 100) / 100);
+      }
+
+      // build explanations by comparing consecutive snapshots
+      const expl = [];
+      for (let i=1;i<snaps.length;i++){
+        const a = snaps[i-1];
+        const b = snaps[i];
+        const aTotal = (()=>{ let t=0; for(const k of Object.keys(a.items||{})){ const it=a.items[k]; t+= (it.quantity||0)*(it.avg_price||0);} return t; })();
+        const bTotal = (()=>{ let t=0; for(const k of Object.keys(b.items||{})){ const it=b.items[k]; t+= (it.quantity||0)*(it.avg_price||0);} return t; })();
+        let pct = null;
+        if (aTotal>0) pct = ((bTotal - aTotal)/aTotal)*100;
+        if (pct !== null && Math.abs(pct) >= 5) {
+          const time = new Date(b.snapshot_time*1000).toLocaleString();
+          let text = `${pct>0? '▲':'▼'} Portfolio ${pct>0? 'up':'down'} ${Math.round(pct*100)/100}% between ${new Date(a.snapshot_time*1000).toLocaleString()} and ${time}.`;
+          // check per-item price changes
+          const itemExpl = [];
+          const keys = new Set([...Object.keys(a.items||{}), ...Object.keys(b.items||{})]);
+          for (const name of keys) {
+            const ia = (a.items||{})[name] || {quantity:0, avg_price:0};
+            const ib = (b.items||{})[name] || {quantity:0, avg_price:0};
+            if (ia.avg_price && ib.avg_price) {
+              const pchg = ((ib.avg_price - ia.avg_price)/ia.avg_price)*100;
+              if (Math.abs(pchg) >= 10) {
+                itemExpl.push(`${name} price ${pchg>0? 'rose':'fell'} ${Math.round(pchg*100)/100}% (${Math.round(ia.avg_price*100)/100} → ${Math.round(ib.avg_price*100)/100})`);
+              }
+            }
+            const qdiff = (ib.quantity||0) - (ia.quantity||0);
+            if (qdiff !== 0) {
+              itemExpl.push(`${name} qty ${qdiff>0? 'increased':'decreased'} by ${Math.abs(qdiff)}`);
+            }
+          }
+          // check portfolio_changes within window
+          const windowStart = a.snapshot_time - 43200; // 12h before
+          const windowEnd = b.snapshot_time + 43200; // 12h after
+          const related = changes.filter(c => c.time >= windowStart && c.time <= windowEnd);
+          for (const rc of related) {
+            itemExpl.push(`${Math.abs(rc.change)} x ${rc.item_name} ${rc.change>0? 'added':'removed'} (${rc.reason})`);
+          }
+          if (itemExpl.length) text += ' Details: ' + itemExpl.slice(0,5).join('; ');
+          expl.push({time: b.snapshot_time, text});
+        }
+      }
+
+      setExplanations(expl);
+
+      // render chart
+      const ctx = canvasRef.current && canvasRef.current.getContext('2d');
+      if (!ctx) return;
+      if (chartRef.current) {
+        chartRef.current.data.labels = labels;
+        chartRef.current.data.datasets[0].data = values;
+        chartRef.current.update();
+      } else {
+        chartRef.current = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels,
+            datasets: [{ label: 'Portfolio Value (USD)', data: values, borderColor: '#FF6B2B', backgroundColor: 'rgba(255,107,43,0.08)', tension: 0.2 }]
+          },
+          options: { plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#9AA0AA' } }, y: { ticks: { color: '#9AA0AA' } } } }
+        });
+      }
+
+    } catch (e) {
+      console.error('Graph load failed', e);
+    } finally { setLoading(false); }
+  }, [userId]);
+
+  useEffect(()=>{ loadData(range); }, [range, userId]);
+
+  return (
+    <div style={{marginBottom:12}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
+        <div style={{fontSize:13,fontWeight:700}}>Portfolio Value</div>
+        <div>
+          {['1','7','30','90','all'].map(r => (
+            <button key={r} onClick={()=>setRange(r)} style={{marginLeft:6,padding:'6px 10px',borderRadius:6,border:`1px solid ${F.border}`,background: range===r?`linear-gradient(135deg, ${F.accent}, #C44E18)`:'transparent',color: range===r? '#fff':F.text}}>{r==='all'?'All':r+'D'}</button>
+          ))}
+        </div>
+      </div>
+      <div style={{height:220}}>
+        <canvas ref={canvasRef} style={{width:'100%',height:'220px'}} />
+      </div>
+      <div style={{marginTop:8}}>
+        {loading && <div style={{color:F.muted}}>Loading chart…</div>}
+        {explanations.length===0 && !loading && <div style={{color:F.muted}}>No major changes detected for the selected period.</div>}
+        {explanations.map((e,i)=>(<div key={i} style={{padding:'8px 10px',borderTop: '1px solid rgba(255,255,255,0.02)', color: F.muted}}>{e.text}</div>))}
+      </div>
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PORTFOLIO VIEW
+// ═══════════════════════════════════════════════════════════════════════════════=
+
+function PortfolioView({ initialUser = '' }) {
+  const [userId, setUserId] = useState(initialUser || 'me');
+  const [profileUrl, setProfileUrl] = useState('https://steamcommunity.com/id/NotnFaZe');
+  const [loading, setLoading] = useState(false);
+  const [items, setItems] = useState([]);
+  const [portfolio, setPortfolio] = useState([]);
+  const [msg, setMsg] = useState('');
+
+  const importFromProfile = useCallback(async () => {
+    if (!profileUrl.trim() || !userId.trim()) return;
+    setLoading(true); setMsg('');
+    try {
+      const res = await fetch(`${API_ROUTES.inventory}/api/scrape`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ steam_url: profileUrl.trim(), force: false })
+      });
+      if (!res.ok) throw new Error('Inventory fetch failed');
+      const d = await res.json();
+      // send to portfolio import
+      const imp = await fetch(`${API_ROUTES.portfolio}/api/import`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ user_id: userId.trim(), items: d.items })
+      });
+      if (!imp.ok) {
+        const err = await imp.json().catch(()=>({}));
+        throw new Error(err.detail || 'Import failed');
+      }
+      const r = await imp.json();
+      setItems(r.items || []);
+      setMsg('Imported snapshot');
+    } catch (e) {
+      setMsg(e.message || 'Failed');
+    } finally { setLoading(false); }
+  }, [profileUrl, userId]);
+
+  const loadPortfolio = useCallback(async () => {
+    if (!userId.trim()) return;
+    setLoading(true); setMsg('');
+    try {
+      const res = await fetch(`${API_ROUTES.portfolio}/api/portfolio/${encodeURIComponent(userId.trim())}`);
+      if (!res.ok) throw new Error('Failed to load portfolio');
+      const d = await res.json();
+      setPortfolio(d.items || []);
+    } catch (e) {
+      setMsg(e.message || 'Failed');
+    } finally { setLoading(false); }
+  }, [userId]);
+
+  const adjustItem = useCallback(async (name, change, reason='adjust') => {
+    if (!userId.trim()) return;
+    try {
+      await fetch(`${API_ROUTES.portfolio}/api/adjust`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ user_id: userId.trim(), name, change, reason })
+      });
+      setMsg('Adjustment saved');
+      loadPortfolio();
+    } catch (e) {
+      setMsg('Adjustment failed');
+    }
+  }, [userId, loadPortfolio]);
+
+  const pctColor = pct => {
+    if (pct === null || pct === undefined) return F.muted;
+    const v = Math.abs(pct);
+    if (v >= 100) return pct > 0 ? '#4ade80' : '#ff6b6b';
+    if (v >= 50) return pct > 0 ? '#86efac' : '#ff8a80';
+    if (v >= 20) return pct > 0 ? '#bef264' : '#ffb4a2';
+    if (v >= 10) return pct > 0 ? '#fef08a' : '#ffd6cc';
+    return F.muted;
+  };
+
+  useEffect(() => {
+    if (initialUser) {
+      // auto-load portfolio when arriving via custom URL
+      loadPortfolio();
+      setMsg(`Auto-loaded portfolio for ${initialUser}`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    // reflect current userId in the URL so the link becomes shareable
+    try {
+      if (userId && userId.trim()) window.history.replaceState({}, '', '/' + encodeURIComponent(userId.trim()));
+      else window.history.replaceState({}, '', '/');
+    } catch (e) {}
+  }, [userId]);
+
+  return (
+    <div className="glass" style={{ padding: '20px', marginBottom: 22 }}>
+      <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+        <input value={userId} onChange={e=>setUserId(e.target.value)} placeholder="User id" style={{padding:10, borderRadius:8, border:`1px solid ${F.border}`}} />
+        <input value={profileUrl} onChange={e=>setProfileUrl(e.target.value)} placeholder="Steam profile URL (for import)" style={{flex:1,padding:10,borderRadius:8,border:`1px solid ${F.border}`}} />
+        <button onClick={importFromProfile} disabled={loading} style={{padding:'10px 14px', borderRadius:8, background:`linear-gradient(135deg, ${F.accent}, #C44E18)`, color:'#fff', border:'none'}}>{loading?'IMPORTING…':'Import from profile'}</button>
+        <button onClick={loadPortfolio} disabled={loading} style={{padding:'10px 14px', borderRadius:8, background:'transparent', border:`1px solid ${F.border}`, color:F.text}}>{loading?'LOADING…':'Load saved'}</button>
+      </div>
+
+      {msg && <div style={{marginBottom:10,color:F.muted}}>{msg}</div>}
+
+      {items.length > 0 && (
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:12,color:F.muted,marginBottom:8}}>Imported snapshot changes (vs 24h):</div>
+          <div>
+            {items.map(it => (
+              <div key={it.name} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 10px',borderBottom:'1px solid rgba(255,255,255,0.03)'}}>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:13,fontWeight:700}}>{it.name}</div>
+                  <div style={{fontSize:12,color:F.muted}}>Qty: {it.quantity} • Avg ${it.avg_price.toFixed(2)}</div>
+                </div>
+                <div style={{width:160,textAlign:'right'}}>
+                  <div style={{fontWeight:700,color:pctColor(it.price_change_pct)}}>{it.price_change_pct===null?'-':(it.price_change_pct>0?`+${it.price_change_pct}%`:`${it.price_change_pct}%`)}</div>
+                  <div style={{fontSize:12,color:F.muted}}>Δ qty: {it.qty_change}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {portfolio.length > 0 && (
+        <div>
+          <div style={{fontSize:12,color:F.muted,marginBottom:8}}>Saved portfolio</div>
+          {portfolio.map(p => (
+            <div key={p.item_name} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 10px',borderBottom:'1px solid rgba(255,255,255,0.03)'}}>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13,fontWeight:700}}>{p.item_name}</div>
+                <div style={{fontSize:12,color:F.muted}}>Qty: {p.quantity} • Avg ${p.avg_price.toFixed(2)}</div>
+              </div>
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                <button onClick={()=>{ const v = parseInt(prompt('Amount to mark as sold (positive integer)'), '1'); if(v) adjustItem(p.item_name, -Math.abs(v), 'sold'); }} style={{padding:'6px 8px',borderRadius:6,border:`1px solid ${F.border}`,background:'transparent',color:F.text}}>Mark sold</button>
+                <button onClick={()=>{ const v = parseInt(prompt('Amount moved to storage'), '1'); if(v) adjustItem(p.item_name, -Math.abs(v), 'storage'); }} style={{padding:'6px 8px',borderRadius:6,border:`1px solid ${F.border}`,background:'transparent',color:F.text}}>Moved</button>
+                <button onClick={()=>{ const v = parseInt(prompt('Amount added'), '1'); if(v) adjustItem(p.item_name, Math.abs(v), 'added'); }} style={{padding:'6px 8px',borderRadius:6,background:`linear-gradient(135deg, ${F.accent}, #C44E18)`,color:'#fff',border:'none'}}>Add</button>
+                <button onClick={async ()=>{
+                  const nq = parseInt(prompt('Set new absolute quantity (0 to remove):', String(p.quantity)), '10');
+                  const np = parseFloat(prompt('Set new avg price (USD):', String(p.avg_price || 0.0)));
+                  if (!isNaN(nq) && !isNaN(np)) {
+                    await fetch(`${API_ROUTES.portfolio}/api/update_item`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id: userId, name: p.item_name, quantity: nq, avg_price: np, reason: 'manual_edit'})});
+                    setMsg('Item updated');
+                    loadPortfolio();
+                  }
+                }} style={{padding:'6px 8px',borderRadius:6,border:`1px solid ${F.border}`,background:'transparent',color:F.text}}>Edit</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!items.length && !portfolio.length && (
+        <div style={{padding:40,textAlign:'center',color:F.muted}}>Import an inventory snapshot or load a saved portfolio to begin.</div>
+      )}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// MAIN APP
+// ════════════════════════════════════════════════════════════════════════════════
+
+function App() {
+  const pathUser = decodeURIComponent(window.location.pathname.replace(/^\/+/, ''));
+  const initialView = pathUser ? 'portfolio' : 'inventory';
+  const [view, setView] = useState(initialView);
+  const initialUser = pathUser || '';
+  const [invUrl, setInvUrl] = useState('https://steamcommunity.com/id/NotnFaZe');
+  const [pumpUrl, setPumpUrl] = useState('');
+  const [invLoading, setInvLoading] = useState(false);
+  const [pumpData, setPumpData] = useState(null);
+  const [items, setItems] = useState([]);
+  const [error, setError] = useState('');
+
+  const topPumpScore = pumpData?.result?.pump_score ? String(pumpData.result.pump_score) : '—';
+  const topValue = items.length ? `$${Math.max(...items.map(i => i.price || 0)).toLocaleString('en-US')}` : 'Scan to reveal';
+  const itemTraffic = items.length ? `${items.length} moved` : 'No scan yet';
+
+  const handleInventoryScan = useCallback(async () => {
+    if (!invUrl.trim() || invLoading) return;
+    setInvLoading(true);
+    setError('');
+    
+    try {
+      const res = await fetch(`${API_ROUTES.inventory}/api/scrape`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ steam_url: invUrl.trim(), force: false }),
+      });
+      
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.detail || `HTTP ${res.status}`);
+      }
+      
+      const d = await res.json();
+      setItems(d.items);
+    } catch (e) {
+      setError(e.message || 'Failed to scan');
+    } finally {
+      setInvLoading(false);
+    }
+  }, [invUrl, invLoading]);
+
+  const getHeaderUrl = () => {
+    if (view === 'pump') return pumpUrl;
+    return invUrl;
+  };
+
+  const getHeaderPlaceholder = () => {
+    if (view === 'pump') return "SteamDT.com item URL…";
+    return "Steam profile URL…";
+  };
+
+  return (
+    <div style={{ minHeight: '100vh', paddingBottom: 60 }}>
+      {/* HEADER */}
+      <div style={{
+        position: 'sticky', top: 0, zIndex: 100,
+        background: 'rgba(6,8,11,0.93)', backdropFilter: 'blur(20px)',
+        borderBottom: `1px solid ${F.border}`, padding: '15px 30px'
+      }}>
+        <div style={{
+          maxWidth: 1400, margin: '0 auto', display: 'flex',
+          alignItems: 'center', justifyContent: 'space-between', gap: 12
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{
+              width: 44, height: 44, borderRadius: 9, overflow: 'hidden',
+              boxShadow: '0 0 22px rgba(255,107,43,0.48)',
+              border: '1px solid rgba(255,107,43,0.32)', flexShrink: 0
+            }}>
+              <span style={{
+                width: '100%', height: '100%', display: 'flex',
+                alignItems: 'center', justifyContent: 'center',
+                fontSize: 24, background: `linear-gradient(135deg, ${F.accent} 0%, #C44E18 100%)`
+              }}>🔥</span>
+            </div>
+            <div>
+              <div style={{ fontSize: 21, fontWeight: 700, fontFamily: "'Bebas Neue', Impact, sans-serif", letterSpacing: '0.08em', color: F.text }}>FENIX TOOLS</div>
+              <div style={{ fontSize: 11, color: F.muted, letterSpacing: '0.12em', textTransform: 'uppercase' }}>CS2 TRACKING SUITE</div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 6 }}>
+            {[
+              { id: 'inventory', label: '📦 Inventory', color: '#FF6B2B' },
+              { id: 'pump', label: '🐠 Pump', color: '#FF9F43' },
+              { id: 'portfolio', label: '💼 Portfolio', color: '#A29BFE' }
+            ].map(tool => (
+              <button
+                key={tool.id}
+                onClick={() => setView(tool.id)}
+                style={{
+                  padding: '8px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                  border: view === tool.id ? `2px solid ${tool.color}` : `1px solid ${F.border}`,
+                  background: view === tool.id ? `rgba(255,107,43,0.1)` : 'transparent',
+                  color: view === tool.id ? tool.color : F.text, cursor: 'pointer'
+                }}
+              >
+                {tool.label}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, flex: '1 1 300px' }}>
+            <input
+              value={getHeaderUrl()}
+              onChange={e => view === 'pump' ? setPumpUrl(e.target.value) : setInvUrl(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleInventoryScan()}
+              placeholder={getHeaderPlaceholder()}
+              style={{
+                flex: 1, background: 'rgba(255,255,255,0.04)',
+                border: `1px solid ${F.border}`, borderRadius: 7,
+                padding: '10px 14px', color: F.text, fontSize: 13
+              }}
+            />
+            <button
+              onClick={handleInventoryScan}
+              disabled={invLoading}
+              style={{
+                padding: '10px 22px', borderRadius: 7, fontSize: 13, fontWeight: 700,
+                border: 'none', cursor: invLoading ? 'not-allowed' : 'pointer',
+                background: invLoading ? '#C44E18' : `linear-gradient(135deg, ${F.accent} 0%, #C44E18 100%)`,
+                color: '#fff', display: 'flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap'
+              }}
+            >
+              {invLoading ? <><Spinner size={13} /> {view === 'pump' ? 'ANALYZING…' : 'SCANNING…'}</> : (view === 'pump' ? 'ANALYZE' : 'SCAN')}
+            </button>
+            <a href="https://www.youtube.com/@fenixs2555" target="_blank" rel="noopener noreferrer" className="yt-chip">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 15l5.5-3L10 9v6zm11-6.7c0-.76-.6-1.4-1.4-1.4H4.4C3.64 6.9 3 7.54 3 8.3v7.4c0 .76.64 1.4 1.4 1.4h15.2c.78 0 1.4-.64 1.4-1.4V8.3z"/></svg>
+              YouTube
+            </a>
+          </div>
+        </div>
+        <div className="header-stats">
+          <div className="header-card">
+            <div className="header-card-title">Top pump score</div>
+            <div className="header-card-value">{topPumpScore}</div>
+            <div style={{ fontSize: 12, color: F.muted }}>Updated by the pump analyzer</div>
+          </div>
+          <div className="header-card">
+            <div className="header-card-title">Largest scanned value</div>
+            <div className="header-card-value">{topValue}</div>
+            <div style={{ fontSize: 12, color: F.muted }}>Largest item from latest inventory scan</div>
+          </div>
+          <div className="header-card">
+            <div className="header-card-title">Item flow today</div>
+            <div className="header-card-value">{itemTraffic}</div>
+            <div style={{ fontSize: 12, color: F.muted }}>Inventory movements and updates</div>
+          </div>
+        </div>
+      </div>
+
+      {/* CONTENT */}
+      <div style={{ maxWidth: 1400, margin: '0 auto', padding: '22px 24px' }}>
+        {view === 'inventory' && <InventoryView />}
+        {view === 'pump' && <PumpView />}
+        {view === 'portfolio' && <PortfolioView initialUser={initialUser} />}
+
+        <div style={{
+          marginTop: 20, paddingTop: 14, borderTop: `1px solid ${F.border}`,
+          display: 'flex', justifyContent: 'space-between',
+          fontSize: 10, color: F.muted
+        }}>
+          <span>FENIX TOOLS · STEAMDT.COM · CNY→USD @ 0.14</span>
+          <a href="https://www.youtube.com/@fenixs2555" target="_blank" rel="noopener noreferrer"
+            style={{ textDecoration: 'none', color: F.muted }}>
+            youtube.com/@fenixs2555
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
