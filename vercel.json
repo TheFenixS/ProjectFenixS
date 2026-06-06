@@ -6,10 +6,5 @@
       "src": "/.*",
       "dest": "/index.html"
     }
-  ],
-  "env": {
-    "VITE_INVENTORY_API": "@inventory-tracker-api",
-    "VITE_PUMP_API": "@pump-detector-api",
-    "VITE_PORTFOLIO_API": "@portfolio-manager-api"
-  }
+  ]
 }
