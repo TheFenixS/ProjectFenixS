@@ -1,5 +1,20 @@
 {
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    { 
+      "source": "/api/inventory/:path*", 
+      "destination": "https://ytfenixs-inventorytrackerapi.hf.space/:path*" 
+    },
+    { 
+      "source": "/api/pump/:path*", 
+      "destination": "https://OMAPUMP-SPACE.hf.space/:path*" 
+    },
+    { 
+      "source": "/api/portfolio/:path*", 
+      "destination": "https://OMAPORTFOLIO-SPACE.hf.space/:path*" 
+    },
+    { 
+      "source": "/(.*)", 
+      "destination": "/index.html" 
+    }
   ]
 }
