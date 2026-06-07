@@ -1,81 +1,52 @@
-// api/[...path].js
-// Vercel catch-all: nappaaa KAIKKI /api/* pyynnöt
-// Esim: /api/inventory/scrape → HF_INVENTORY_URL/api/scrape
-
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
-  if (req.method === 'OPTIONS') return res.status(200).end();
+  const rawPath = req.url.split('?')[0];        // esim. "/api/pump/analyze"
+  const withoutApi = rawPath.replace(/^\/api\//, ''); // "pump/analyze"
+  const parts = withoutApi.split('/');
+  const service = parts[0];                     // "pump"
+  const targetPath = parts.slice(1).join('/');  // "analyze"
 
-  // Vercel asettaa [...path] queryn automaattisesti
-  // esim. /api/inventory/scrape → req.query.path = ['inventory', 'scrape']
-  const pathParts = req.query.path || [];
-
-  const service = pathParts[0];           // 'inventory' | 'pump' | 'portfolio'
-  const endpoint = pathParts.slice(1).join('/'); // 'scrape' | 'analyze' | 'portfolio/user123'
-
-  const serviceMap = {
-    inventory: {
-      url:   process.env.HF_INVENTORY_URL,
-      token: process.env.HF_INVENTORY_TOKEN,
-    },
-    pump: {
-      url:   process.env.HF_PUMP_URL,
-      token: process.env.HF_PUMP_TOKEN,
-    },
-    portfolio: {
-      url:   process.env.HF_PORTFOLIO_URL,
-      token: process.env.HF_PORTFOLIO_TOKEN,
-    },
-  };
-
-  const svc = serviceMap[service];
-
-  if (!svc) {
-    return res.status(400).json({
-      error: `Tuntematon palvelu: "${service}"`,
-      saatavilla: Object.keys(serviceMap),
-      path_received: pathParts,
-    });
+  // Valitaan oikea backend palvelun mukaan
+  let BASE_URL, TOKEN;
+  if (service === 'inventory') {
+    BASE_URL = process.env.HF_INVENTORY_URL;
+    TOKEN    = process.env.HF_INVENTORY_TOKEN;
+  } else if (service === 'pump') {
+    BASE_URL = process.env.HF_PUMP_URL;
+    TOKEN    = process.env.HF_PUMP_TOKEN;
+  } else if (service === 'portfolio') {
+    BASE_URL = process.env.HF_PORTFOLIO_URL;
+    TOKEN    = process.env.HF_PORTFOLIO_TOKEN;
+  } else {
+    return res.status(400).json({ error: `Unknown service: ${service}` });
   }
 
-  if (!svc.url || !svc.token) {
+  if (!BASE_URL || !TOKEN) {
     return res.status(500).json({
-      error: 'Puuttuvat env-muuttujat Vercelissä',
-      tarkista: `HF_${service.toUpperCase()}_URL ja HF_${service.toUpperCase()}_TOKEN`,
+      error: 'Missing env vars',
+      need: `HF_${service.toUpperCase()}_URL and HF_${service.toUpperCase()}_TOKEN`,
     });
   }
 
-  // Rakennetaan kohde-URL: https://your-space.hf.space/api/scrape
-  const cleanBase = svc.url.replace(/\/+$/, '');
-  const finalUrl = `${cleanBase}/api/${endpoint}`;
+  const cleanBase = BASE_URL.replace(/\/+$/, '').replace(/\/api\/?$/, '');
+  const finalUrl  = `${cleanBase}/api/${targetPath}`;
 
-  console.log(`[proxy] ${req.method} /${pathParts.join('/')} → ${finalUrl}`);
+  console.log(`[proxy] ${req.method} ${service}/${targetPath} → ${finalUrl}`);
 
   try {
-    const options = {
+    const response = await fetch(finalUrl, {
       method: req.method,
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${svc.token}`,
+        'Authorization': `Bearer ${TOKEN}`,
       },
-    };
+      body: req.method !== 'GET' ? JSON.stringify(req.body) : undefined,
+    });
 
-    if (req.method !== 'GET' && req.method !== 'HEAD' && req.body) {
-      options.body = typeof req.body === 'string'
-        ? req.body
-        : JSON.stringify(req.body);
-    }
+    const text = await response.text();
 
-    const upstream = await fetch(finalUrl, options);
-    const text = await upstream.text();
-
-    console.log(`[proxy] upstream ${upstream.status} from ${finalUrl}`);
-
-    if (!upstream.ok) {
-      return res.status(upstream.status).json({
-        error: `Upstream ${upstream.status}`,
+    if (!response.ok) {
+      return res.status(response.status).json({
+        error: `Upstream error ${response.status}`,
         detail: text.slice(0, 500),
         tried_url: finalUrl,
       });
@@ -89,7 +60,7 @@ export default async function handler(req, res) {
 
   } catch (err) {
     return res.status(502).json({
-      error: 'Proxy fetch epäonnistui',
+      error: 'Proxy fetch failed',
       detail: err.message,
       tried_url: finalUrl,
     });
