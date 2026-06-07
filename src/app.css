@@ -1,381 +1,237 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-
-// ─── API helper ───────────────────────────────────────────────────────────────
-// URL-muoto: /api/{service}/{endpoint}
-// Vercel [...path].js nappaa tämän ja ohjaa oikeaan HF Spaceen
-async function apiFetch(service, endpoint, { method = 'POST', body } = {}) {
-  const url = `/api/${service}/${endpoint}`;
-  const res = await fetch(url, {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    ...(body != null ? { body: JSON.stringify(body) } : {}),
-  });
-  if (!res.ok) {
-    let msg = `HTTP ${res.status}`;
-    try { const e = await res.json(); msg = e.detail || e.error || msg; } catch {}
-    throw new Error(msg);
-  }
-  return res.json();
+/* App.css */
+:root {
+  --bg:        #0A0C0F;
+  --bg2:       rgba(15,18,22,0.88);
+  --accent:    #FF6B2B;
+  --accent-d:  rgba(255,107,43,0.14);
+  --text:      #E8EBF0;
+  --muted:     #6B7585;
+  --border:    rgba(255,107,43,0.11);
+  --border2:   rgba(255,255,255,0.06);
+  --danger:    #FF6868;
 }
 
-const api = {
-  scrapeInventory: (steamUrl, force = false) =>
-    apiFetch('inventory', 'scrape', { body: { steam_url: steamUrl, force } }),
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { min-height: 100vh; }
 
-  analyzePump: (url) =>
-    apiFetch('pump', 'analyze', { body: { url } }),
-
-  importPortfolio: (userId, items) =>
-    apiFetch('portfolio', 'import', { body: { user_id: userId, items } }),
-
-  getPortfolio: (userId) =>
-    apiFetch('portfolio', `portfolio/${encodeURIComponent(userId)}`, { method: 'GET' }),
-};
-
-// ─── Spinner ──────────────────────────────────────────────────────────────────
-function Spinner() {
-  return <div className="spinner" />;
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', system-ui, sans-serif;
+  overflow-x: hidden;
+  background-image:
+    radial-gradient(circle at 88% 8%,  rgba(255,107,43,0.11) 0%, transparent 28%),
+    radial-gradient(circle at  8% 55%, rgba(255,255,255,0.025) 0%, transparent 18%);
+  background-attachment: fixed;
 }
 
-// ─── InventoryView ────────────────────────────────────────────────────────────
-const PAGE_SIZE = 20;
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,107,43,0.28); border-radius: 3px; }
 
-function InventoryView({ triggerScan }) {
-  const [items, setItems]     = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState('');
-  const [page, setPage]       = useState(1);
-  const lastTs                = useRef(null);
+/* ─── Utilities ───────────────────────────────────────────────────── */
+.muted  { color: var(--muted); }
+.bold   { font-weight: 600; }
+.small  { font-size: 12px; }
+.tar    { text-align: right; }
 
-  const scan = useCallback(async (url) => {
-    if (!url?.trim()) return;
-    setLoading(true); setError('');
-    try {
-      const data = await api.scrapeInventory(url.trim());
-      setItems(data.items || []); setPage(1);
-    } catch (e) { setError(e.message); }
-    finally { setLoading(false); }
-  }, []);
+@keyframes spin    { to { transform: rotate(360deg); } }
+@keyframes fadeIn  { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:none; } }
 
-  useEffect(() => {
-    if (triggerScan && triggerScan.ts !== lastTs.current) {
-      lastTs.current = triggerScan.ts;
-      scan(triggerScan.url);
-    }
-  }, [triggerScan, scan]);
-
-  const totalValue  = items.reduce((s, i) => s + (i.price || 0), 0);
-  const totalPages  = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
-  const pageItems   = items.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-
-  return (
-    <div>
-      {error && <div className="error-bar">⚠ {error}</div>}
-
-      <div className="stats-row">
-        <div className="stat-card">
-          <div className="stat-label">Total Items</div>
-          <div className="stat-value">{items.length}</div>
-        </div>
-        <div className="stat-card accent">
-          <div className="stat-label">Total Value</div>
-          <div className="stat-value" style={{ color: 'var(--accent)' }}>
-            ${totalValue.toLocaleString('en-US', { maximumFractionDigits: 2 })}
-          </div>
-        </div>
-      </div>
-
-      {loading && (
-        <div className="center-state"><Spinner /><span>Scanning inventory…</span></div>
-      )}
-
-      {!loading && !error && items.length === 0 && (
-        <div className="empty-state">Paste a Steam profile URL above and click SCAN.</div>
-      )}
-
-      {pageItems.length > 0 && (
-        <>
-          <div className="tbl-head inv-grid">
-            <span>#</span><span>Name</span><span>Rarity</span>
-            <span>Type</span><span className="tar">Price</span>
-          </div>
-          {pageItems.map((item, i) => (
-            <div key={`${item.assetId}-${i}`} className="tbl-row inv-grid">
-              <span className="muted small">{(page-1)*PAGE_SIZE+i+1}</span>
-              <span className="bold">{item.name}</span>
-              <span className="rarity-pill">{item.rarity}</span>
-              <span className="muted small">{item.weaponType}</span>
-              <span className="tar bold" style={{ color: item.price >= 100 ? 'var(--accent)' : 'var(--text)' }}>
-                ${item.price?.toFixed(2)}
-              </span>
-            </div>
-          ))}
-          {totalPages > 1 && (
-            <div className="pager">
-              <button onClick={() => setPage(p => Math.max(1, p-1))} disabled={page === 1}>← Prev</button>
-              <span className="muted">Page <b style={{ color: 'var(--text)' }}>{page}</b> of {totalPages}</span>
-              <button onClick={() => setPage(p => Math.min(totalPages, p+1))} disabled={page === totalPages}>Next →</button>
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
+.fade-in  { animation: fadeIn .28s ease both; }
+.spinner  {
+  width: 18px; height: 18px; flex-shrink: 0;
+  border: 2px solid rgba(255,107,43,0.15);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
 }
 
-// ─── PumpView ─────────────────────────────────────────────────────────────────
-function PumpView({ triggerScan }) {
-  const [data, setData]       = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState('');
-  const lastTs                = useRef(null);
-
-  const analyze = useCallback(async (url) => {
-    if (!url?.trim()) return;
-    setLoading(true); setError(''); setData(null);
-    try {
-      const result = await api.analyzePump(url.trim());
-      setData(result);
-    } catch (e) { setError(e.message); }
-    finally { setLoading(false); }
-  }, []);
-
-  useEffect(() => {
-    if (triggerScan && triggerScan.ts !== lastTs.current) {
-      lastTs.current = triggerScan.ts;
-      analyze(triggerScan.url);
-    }
-  }, [triggerScan, analyze]);
-
-  const r = data?.result;
-
-  return (
-    <div>
-      {error && <div className="error-bar">⚠ {error}</div>}
-
-      {loading && (
-        <div className="center-state"><Spinner /><span>Analyzing pump signals…</span></div>
-      )}
-
-      {!loading && !data && !error && (
-        <div className="empty-state">Paste a SteamDT item URL above and click ANALYZE.</div>
-      )}
-
-      {r && (
-        <div className="fade-in">
-          <h3 className="pump-name">{data.name}</h3>
-          <div className="pump-grid">
-            <div className="pump-card accent-border">
-              <div className="stat-label">Pump Score</div>
-              <div className="stat-value" style={{ color: 'var(--accent)' }}>{r.pump_score}</div>
-              <div className="muted small" style={{ marginTop: 6 }}>{r.pump_label}</div>
-            </div>
-            <div className="pump-card">
-              <div className="stat-label">Price</div>
-              <div className="stat-value">${r.price?.toFixed(2)}</div>
-              <div className="muted small" style={{ marginTop: 6 }}>USD</div>
-            </div>
-            <div className="pump-card">
-              <div className="stat-label">DNA</div>
-              <div className="pump-val-md">{r.dna_label}</div>
-              <div className="muted small" style={{ marginTop: 6 }}>{r.dna_score}</div>
-            </div>
-            <div className="pump-card">
-              <div className="stat-label">Status</div>
-              <div className="pump-val-md" style={{ color: r.is_exploding ? '#FF6B6B' : 'var(--accent)' }}>
-                {r.mode}
-              </div>
-            </div>
-          </div>
-
-          {data.chart_base64 && (
-            <img
-              src={`data:image/png;base64,${data.chart_base64}`}
-              alt="Pump chart"
-              className="pump-chart"
-            />
-          )}
-
-          {r.signals?.length > 0 && (
-            <div className="signals-box">
-              <div className="stat-label" style={{ marginBottom: 10 }}>Signals</div>
-              {r.signals.map((sig, i) => (
-                <div key={i} className="signal-row">
-                  <span className={`signal-dot ${sig.positive ? 'pos' : 'neg'}`} />
-                  <span>{sig.label}</span>
-                  <span className="muted small" style={{ marginLeft: 'auto' }}>{sig.value}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
+/* ─── Header ─────────────────────────────────────────────────────── */
+.header {
+  position: sticky; top: 0; z-index: 100;
+  background: rgba(6,8,11,0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
 }
 
-// ─── PortfolioView ────────────────────────────────────────────────────────────
-function PortfolioView() {
-  const [userId, setUserId]       = useState('me');
-  const [profileUrl, setProfile]  = useState('https://steamcommunity.com/id/NotnFaZe');
-  const [loading, setLoading]     = useState(false);
-  const [portfolio, setPortfolio] = useState([]);
-  const [msg, setMsg]             = useState('');
-
-  const importFromProfile = async () => {
-    if (!profileUrl.trim() || !userId.trim()) return;
-    setLoading(true); setMsg('');
-    try {
-      const inv = await api.scrapeInventory(profileUrl.trim());
-      const result = await api.importPortfolio(userId.trim(), inv.items);
-      setPortfolio(result.items || []);
-      setMsg(`✓ Tuotu ${result.items?.length || 0} itemiä`);
-    } catch (e) { setMsg(`⚠ ${e.message}`); }
-    finally { setLoading(false); }
-  };
-
-  const loadPortfolio = async () => {
-    if (!userId.trim()) return;
-    setLoading(true); setMsg('');
-    try {
-      const data = await api.getPortfolio(userId.trim());
-      setPortfolio(data.items || []);
-      setMsg(`✓ Ladattu ${data.items?.length || 0} itemiä`);
-    } catch (e) { setMsg(`⚠ ${e.message}`); }
-    finally { setLoading(false); }
-  };
-
-  const totalValue = portfolio.reduce((s, p) => s + (p.quantity * p.avg_price), 0);
-
-  return (
-    <div>
-      <div className="port-controls">
-        <input
-          value={userId} onChange={e => setUserId(e.target.value)}
-          placeholder="User ID" className="input-base" style={{ width: 110 }}
-        />
-        <input
-          value={profileUrl} onChange={e => setProfile(e.target.value)}
-          placeholder="Steam profile URL" className="input-base input-flex"
-        />
-        <button onClick={importFromProfile} disabled={loading} className="btn-primary">
-          {loading ? 'Importing…' : 'Import'}
-        </button>
-        <button onClick={loadPortfolio} disabled={loading} className="btn-ghost">
-          {loading ? 'Loading…' : 'Load saved'}
-        </button>
-      </div>
-
-      {msg && <div className="port-msg">{msg}</div>}
-
-      {portfolio.length > 0 && (
-        <>
-          <div className="port-total">
-            Portfolio value:{' '}
-            <strong style={{ color: 'var(--accent)' }}>
-              ${totalValue.toLocaleString('en-US', { maximumFractionDigits: 2 })}
-            </strong>
-          </div>
-          <div className="tbl-head port-grid">
-            <span>Item</span>
-            <span className="tar">Qty</span>
-            <span className="tar">Avg buy</span>
-            <span className="tar">Total</span>
-          </div>
-          {portfolio.map(p => (
-            <div key={p.item_name} className="tbl-row port-grid">
-              <span className="bold">{p.item_name}</span>
-              <span className="tar muted">{p.quantity}</span>
-              <span className="tar muted">${p.avg_price?.toFixed(2)}</span>
-              <span className="tar bold">${(p.quantity * p.avg_price).toFixed(2)}</span>
-            </div>
-          ))}
-        </>
-      )}
-
-      {!portfolio.length && !loading && (
-        <div className="empty-state">Import an inventory snapshot or load a saved portfolio.</div>
-      )}
-    </div>
-  );
+.header-inner {
+  max-width: 1400px; margin: 0 auto;
+  display: flex; align-items: center; gap: 16px;
+  padding: 14px 28px; flex-wrap: wrap;
 }
 
-// ─── App (root) ───────────────────────────────────────────────────────────────
-const TABS = [
-  { id: 'inventory', emoji: '📦', label: 'Inventory', placeholder: 'Steam profile URL…' },
-  { id: 'pump',      emoji: '🐠', label: 'Pump',      placeholder: 'SteamDT.com item URL…' },
-  { id: 'portfolio', emoji: '💼', label: 'Portfolio',  placeholder: null },
-];
+/* Logo */
+.logo        { display:flex; align-items:center; gap:12px; flex-shrink:0; }
+.logo-icon   {
+  width:44px; height:44px; border-radius:10px;
+  background: linear-gradient(135deg,var(--accent),#C44E18);
+  display:flex; align-items:center; justify-content:center;
+  font-size:22px; box-shadow:0 0 18px rgba(255,107,43,0.35);
+}
+.logo-title  { font-family:'Bebas Neue',Impact,sans-serif; font-size:22px; letter-spacing:.08em; line-height:1; }
+.logo-sub    { font-size:10px; color:var(--muted); letter-spacing:.14em; text-transform:uppercase; margin-top:2px; }
 
-export default function App() {
-  const [view, setView]         = useState('inventory');
-  const [invUrl, setInvUrl]     = useState('https://steamcommunity.com/id/NotnFaZe');
-  const [pumpUrl, setPumpUrl]   = useState('');
-  const [invTrigger, setInvTrigger]   = useState(null);
-  const [pumpTrigger, setPumpTrigger] = useState(null);
+/* Nav */
+.nav-tabs { display:flex; gap:4px; }
+.nav-tab  {
+  padding:8px 14px; border-radius:7px; font-size:12px; font-weight:600;
+  border:1px solid transparent; background:transparent; color:var(--muted);
+  cursor:pointer; transition:all .16s; font-family:'Inter',sans-serif;
+}
+.nav-tab:hover  { color:var(--text); background:var(--border2); }
+.nav-tab.active { border-color:var(--accent); background:var(--accent-d); color:var(--accent); }
 
-  const activeTab   = TABS.find(t => t.id === view);
-  const showInput   = activeTab?.placeholder !== null;
-  const currentUrl  = view === 'pump' ? pumpUrl  : invUrl;
-  const setUrl      = view === 'pump' ? setPumpUrl : setInvUrl;
+/* Search */
+.search-bar   { display:flex; gap:8px; flex:1 1 280px; }
+.search-input {
+  flex:1; background:rgba(255,255,255,0.04); border:1px solid var(--border);
+  border-radius:7px; padding:10px 14px; color:var(--text); font-size:13px;
+  font-family:'Inter',sans-serif; transition:border-color .15s;
+}
+.search-input:focus       { outline:none; border-color:var(--accent); }
+.search-input::placeholder { color:var(--muted); }
 
-  const handleAction = () => {
-    const ts = Date.now();
-    if (view === 'inventory') setInvTrigger({ url: invUrl, ts });
-    else if (view === 'pump') setPumpTrigger({ url: pumpUrl, ts });
-  };
+.btn-scan {
+  padding:10px 22px; border-radius:7px; font-size:13px; font-weight:700;
+  font-family:'Inter',sans-serif; border:none; cursor:pointer;
+  background:linear-gradient(135deg,var(--accent),#C44E18);
+  color:#fff; white-space:nowrap; transition:opacity .15s,transform .1s;
+}
+.btn-scan:hover  { opacity:.9; transform:translateY(-1px); }
+.btn-scan:active { transform:none; }
 
-  return (
-    <>
-      {/* ── Header ── */}
-      <header className="header">
-        <div className="header-inner">
+/* ─── Main / Card ─────────────────────────────────────────────────── */
+.main { max-width:1400px; margin:0 auto; padding:24px 28px 60px; }
 
-          <div className="logo">
-            <div className="logo-icon">🔥</div>
-            <div>
-              <div className="logo-title">FENIX TOOLS</div>
-              <div className="logo-sub">CS2 TRACKING SUITE</div>
-            </div>
-          </div>
+.card {
+  background:var(--bg2); backdrop-filter:blur(14px);
+  -webkit-backdrop-filter:blur(14px);
+  border:1px solid var(--border); border-radius:12px; padding:22px;
+}
 
-          <nav className="nav-tabs">
-            {TABS.map(t => (
-              <button
-                key={t.id}
-                onClick={() => setView(t.id)}
-                className={`nav-tab${view === t.id ? ' active' : ''}`}
-              >
-                {t.emoji} {t.label}
-              </button>
-            ))}
-          </nav>
+/* ─── Shared states ───────────────────────────────────────────────── */
+.error-bar {
+  padding:10px 16px; border-radius:7px; margin-bottom:16px;
+  background:rgba(255,68,68,0.07); border:1px solid rgba(255,68,68,0.22);
+  color:var(--danger); font-size:13px;
+}
 
-          {showInput && (
-            <div className="search-bar">
-              <input
-                value={currentUrl}
-                onChange={e => setUrl(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleAction()}
-                placeholder={activeTab.placeholder}
-                className="search-input"
-              />
-              <button onClick={handleAction} className="btn-scan">
-                {view === 'pump' ? 'ANALYZE' : 'SCAN'}
-              </button>
-            </div>
-          )}
-        </div>
-      </header>
+.empty-state  { padding:60px 20px; text-align:center; color:var(--muted); font-size:14px; }
+.center-state { display:flex; align-items:center; justify-content:center; gap:12px; padding:60px 20px; color:var(--muted); font-size:14px; }
 
-      {/* ── Content ── */}
-      <main className="main">
-        <div className="card">
-          {view === 'inventory' && <InventoryView triggerScan={invTrigger} />}
-          {view === 'pump'      && <PumpView      triggerScan={pumpTrigger} />}
-          {view === 'portfolio' && <PortfolioView />}
-        </div>
-      </main>
-    </>
-  );
+/* ─── Stats ───────────────────────────────────────────────────────── */
+.stats-row   { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:22px; }
+.stat-card   { background:rgba(255,255,255,0.03); border:1px solid var(--border); border-radius:9px; padding:18px; }
+.stat-card.accent { background:var(--accent-d); border-color:rgba(255,107,43,0.28); }
+
+.stat-label { font-size:10px; text-transform:uppercase; letter-spacing:.16em; color:var(--muted); margin-bottom:8px; }
+.stat-value { font-family:'Bebas Neue',Impact,sans-serif; font-size:34px; line-height:1; color:var(--text); }
+
+/* ─── Table ───────────────────────────────────────────────────────── */
+.tbl-head {
+  display:grid; gap:10px;
+  padding:10px 0; margin-bottom:6px;
+  border-bottom:1px solid var(--border);
+  font-size:10px; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--muted); font-weight:600;
+}
+.tbl-row {
+  display:grid; gap:10px;
+  padding:10px 0; border-bottom:1px solid rgba(255,255,255,0.022);
+  align-items:center; font-size:13px;
+  transition:background .12s;
+}
+.tbl-row:hover { background:rgba(255,255,255,0.015); border-radius:4px; }
+
+/* Grids */
+.inv-grid  { grid-template-columns:44px 3fr 110px 90px 80px; }
+.port-grid { grid-template-columns:3fr 70px 90px 90px; }
+
+/* Rarity pill */
+.rarity-pill {
+  font-size:11px; padding:2px 8px; border-radius:4px;
+  background:var(--accent-d); color:var(--accent); display:inline-block;
+}
+
+/* Pagination */
+.pager { display:flex; justify-content:center; align-items:center; gap:12px; padding:20px 0 4px; }
+.pager button {
+  padding:8px 16px; border-radius:6px; border:1px solid var(--border);
+  background:transparent; color:var(--text); cursor:pointer; font-size:13px;
+  font-family:'Inter',sans-serif; transition:border-color .15s;
+}
+.pager button:disabled { color:var(--muted); cursor:not-allowed; }
+.pager button:not(:disabled):hover { border-color:var(--accent); }
+.pager span { font-size:13px; color:var(--muted); }
+
+/* ─── Pump ────────────────────────────────────────────────────────── */
+.pump-name { color:var(--accent); font-size:17px; font-weight:700; margin-bottom:18px; }
+
+.pump-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:20px; }
+
+.pump-card {
+  background:rgba(255,255,255,0.03); border:1px solid var(--border);
+  border-radius:9px; padding:16px; text-align:center;
+}
+.pump-card.accent-border { background:var(--accent-d); border-color:rgba(255,107,43,0.28); }
+
+.pump-val-md { font-family:'Bebas Neue',Impact,sans-serif; font-size:22px; color:var(--text); margin-top:4px; }
+
+.pump-chart { width:100%; border-radius:8px; border:1px solid var(--border); margin-bottom:18px; }
+
+.signals-box { background:rgba(255,255,255,0.02); border:1px solid var(--border); border-radius:8px; padding:16px; }
+.signal-row  { display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid rgba(255,255,255,0.04); font-size:13px; }
+.signal-row:last-child { border-bottom:none; }
+.signal-dot  { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.signal-dot.pos { background:#4CAF50; }
+.signal-dot.neg { background:var(--danger); }
+
+/* ─── Portfolio ───────────────────────────────────────────────────── */
+.port-controls { display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap; }
+
+.input-base {
+  background:rgba(255,255,255,0.04); border:1px solid var(--border);
+  border-radius:7px; padding:10px 14px; color:var(--text);
+  font-size:13px; font-family:'Inter',sans-serif; transition:border-color .15s;
+}
+.input-base:focus       { outline:none; border-color:var(--accent); }
+.input-base::placeholder { color:var(--muted); }
+.input-flex { flex:1; }
+
+.btn-primary {
+  padding:10px 18px; border-radius:7px; border:none;
+  background:linear-gradient(135deg,var(--accent),#C44E18);
+  color:#fff; font-size:13px; font-weight:700; font-family:'Inter',sans-serif;
+  cursor:pointer; white-space:nowrap; transition:opacity .15s;
+}
+.btn-primary:disabled        { opacity:.6; cursor:not-allowed; }
+.btn-primary:not(:disabled):hover { opacity:.88; }
+
+.btn-ghost {
+  padding:10px 16px; border-radius:7px; border:1px solid var(--border);
+  background:transparent; color:var(--text); font-size:13px;
+  font-family:'Inter',sans-serif; cursor:pointer; white-space:nowrap; transition:border-color .15s;
+}
+.btn-ghost:not(:disabled):hover { border-color:var(--accent); }
+.btn-ghost:disabled { color:var(--muted); cursor:not-allowed; }
+
+.port-msg   { font-size:13px; color:var(--muted); margin-bottom:14px; padding:8px 12px; background:rgba(255,255,255,0.02); border-radius:6px; }
+.port-total { font-size:14px; color:var(--muted); margin-bottom:14px; padding-bottom:12px; border-bottom:1px solid var(--border); }
+
+/* ─── Responsive ──────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .pump-grid { grid-template-columns:repeat(2,1fr); }
+  .inv-grid  { grid-template-columns:36px 2fr 80px 70px; }
+}
+
+@media (max-width: 640px) {
+  .header-inner { padding:12px 16px; }
+  .nav-tabs { display:none; }
+  .inv-grid { grid-template-columns:32px 1fr 70px; }
+  .inv-grid .rarity-pill,
+  .inv-grid .small:nth-child(4) { display:none; }
+  .pump-grid { grid-template-columns:1fr 1fr; }
+  .main { padding:16px 16px 40px; }
 }
