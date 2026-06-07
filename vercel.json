@@ -1,8 +1,8 @@
 {
   "rewrites": [
-    { "source": "/api/inventory/:path*", "destination": "https://YOUR-INVENTORY-SPACE.hf.space/:path*" },
-    { "source": "/api/pump/:path*", "destination": "https://YOUR-PUMP-SPACE.hf.space/:path*" },
-    { "source": "/api/portfolio/:path*", "destination": "https://YOUR-PORTFOLIO-SPACE.hf.space/:path*" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
   ]
 }
