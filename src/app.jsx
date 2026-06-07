@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 
-// ─── API helper ───────────────────────────────────────────────────────────────
-// URL-muoto: /api/{service}/{endpoint}
-// Vercel [...path].js nappaa tämän ja ohjaa oikeaan HF Spaceen
-async function apiFetch(service, endpoint, { method = 'POST', body } = {}) {
-  const url = `/api/${service}/${endpoint}`;
-  const res = await fetch(url, {
+// ─── API ──────────────────────────────────────────────────────────────────────
+// Vercel [...path].js nappaa nämä:
+//   /api/inventory/scrape   → HF_INVENTORY_URL/api/scrape
+//   /api/pump/analyze       → HF_PUMP_URL/api/analyze
+//   /api/portfolio/import   → HF_PORTFOLIO_URL/api/import
+
+async function apiFetch(path, { method = 'POST', body } = {}) {
+  const res = await fetch(`/api/${path}`, {
     method,
     headers: { 'Content-Type': 'application/json' },
     ...(body != null ? { body: JSON.stringify(body) } : {}),
@@ -20,16 +22,16 @@ async function apiFetch(service, endpoint, { method = 'POST', body } = {}) {
 
 const api = {
   scrapeInventory: (steamUrl, force = false) =>
-    apiFetch('inventory', 'scrape', { body: { steam_url: steamUrl, force } }),
+    apiFetch('inventory/scrape', { body: { steam_url: steamUrl, force } }),
 
   analyzePump: (url) =>
-    apiFetch('pump', 'analyze', { body: { url } }),
+    apiFetch('pump/analyze', { body: { url } }),
 
   importPortfolio: (userId, items) =>
-    apiFetch('portfolio', 'import', { body: { user_id: userId, items } }),
+    apiFetch('portfolio/import', { body: { user_id: userId, items } }),
 
   getPortfolio: (userId) =>
-    apiFetch('portfolio', `portfolio/${encodeURIComponent(userId)}`, { method: 'GET' }),
+    apiFetch(`portfolio/portfolio/${encodeURIComponent(userId)}`, { method: 'GET' }),
 };
 
 // ─── Spinner ──────────────────────────────────────────────────────────────────
@@ -64,31 +66,27 @@ function InventoryView({ triggerScan }) {
     }
   }, [triggerScan, scan]);
 
-  const totalValue  = items.reduce((s, i) => s + (i.price || 0), 0);
-  const totalPages  = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
-  const pageItems   = items.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const totalValue = items.reduce((s, i) => s + (i.price || 0), 0);
+  const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+  const pageItems  = items.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
     <div>
       {error && <div className="error-bar">⚠ {error}</div>}
-
       <div className="stats-row">
         <div className="stat-card">
           <div className="stat-label">Total Items</div>
           <div className="stat-value">{items.length}</div>
         </div>
-        <div className="stat-card accent">
-          <div className="stat-label">Total Value</div>
+        <div className="stat-card" style={{ background: 'var(--accent-d)', borderColor: 'rgba(255,107,43,0.28)' }}>
+          <div className="stat-label" style={{ color: 'var(--accent)' }}>Total Value</div>
           <div className="stat-value" style={{ color: 'var(--accent)' }}>
             ${totalValue.toLocaleString('en-US', { maximumFractionDigits: 2 })}
           </div>
         </div>
       </div>
 
-      {loading && (
-        <div className="center-state"><Spinner /><span>Scanning inventory…</span></div>
-      )}
-
+      {loading && <div className="center-state"><Spinner /><span>Scanning inventory…</span></div>}
       {!loading && !error && items.length === 0 && (
         <div className="empty-state">Paste a Steam profile URL above and click SCAN.</div>
       )}
@@ -101,7 +99,7 @@ function InventoryView({ triggerScan }) {
           </div>
           {pageItems.map((item, i) => (
             <div key={`${item.assetId}-${i}`} className="tbl-row inv-grid">
-              <span className="muted small">{(page-1)*PAGE_SIZE+i+1}</span>
+              <span className="muted small">{(page - 1) * PAGE_SIZE + i + 1}</span>
               <span className="bold">{item.name}</span>
               <span className="rarity-pill">{item.rarity}</span>
               <span className="muted small">{item.weaponType}</span>
@@ -112,9 +110,9 @@ function InventoryView({ triggerScan }) {
           ))}
           {totalPages > 1 && (
             <div className="pager">
-              <button onClick={() => setPage(p => Math.max(1, p-1))} disabled={page === 1}>← Prev</button>
+              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>← Prev</button>
               <span className="muted">Page <b style={{ color: 'var(--text)' }}>{page}</b> of {totalPages}</span>
-              <button onClick={() => setPage(p => Math.min(totalPages, p+1))} disabled={page === totalPages}>Next →</button>
+              <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>Next →</button>
             </div>
           )}
         </>
@@ -152,20 +150,15 @@ function PumpView({ triggerScan }) {
   return (
     <div>
       {error && <div className="error-bar">⚠ {error}</div>}
-
-      {loading && (
-        <div className="center-state"><Spinner /><span>Analyzing pump signals…</span></div>
-      )}
-
+      {loading && <div className="center-state"><Spinner /><span>Analyzing pump signals…</span></div>}
       {!loading && !data && !error && (
         <div className="empty-state">Paste a SteamDT item URL above and click ANALYZE.</div>
       )}
-
       {r && (
         <div className="fade-in">
           <h3 className="pump-name">{data.name}</h3>
           <div className="pump-grid">
-            <div className="pump-card accent-border">
+            <div className="pump-card" style={{ background: 'var(--accent-d)', borderColor: 'rgba(255,107,43,0.28)' }}>
               <div className="stat-label">Pump Score</div>
               <div className="stat-value" style={{ color: 'var(--accent)' }}>{r.pump_score}</div>
               <div className="muted small" style={{ marginTop: 6 }}>{r.pump_label}</div>
@@ -187,15 +180,9 @@ function PumpView({ triggerScan }) {
               </div>
             </div>
           </div>
-
           {data.chart_base64 && (
-            <img
-              src={`data:image/png;base64,${data.chart_base64}`}
-              alt="Pump chart"
-              className="pump-chart"
-            />
+            <img src={`data:image/png;base64,${data.chart_base64}`} alt="chart" className="pump-chart" />
           )}
-
           {r.signals?.length > 0 && (
             <div className="signals-box">
               <div className="stat-label" style={{ marginBottom: 10 }}>Signals</div>
@@ -226,10 +213,10 @@ function PortfolioView() {
     if (!profileUrl.trim() || !userId.trim()) return;
     setLoading(true); setMsg('');
     try {
-      const inv = await api.scrapeInventory(profileUrl.trim());
+      const inv    = await api.scrapeInventory(profileUrl.trim());
       const result = await api.importPortfolio(userId.trim(), inv.items);
       setPortfolio(result.items || []);
-      setMsg(`✓ Tuotu ${result.items?.length || 0} itemiä`);
+      setMsg(`✓ Imported ${result.items?.length || 0} items`);
     } catch (e) { setMsg(`⚠ ${e.message}`); }
     finally { setLoading(false); }
   };
@@ -240,24 +227,20 @@ function PortfolioView() {
     try {
       const data = await api.getPortfolio(userId.trim());
       setPortfolio(data.items || []);
-      setMsg(`✓ Ladattu ${data.items?.length || 0} itemiä`);
+      setMsg(`✓ Loaded ${data.items?.length || 0} items`);
     } catch (e) { setMsg(`⚠ ${e.message}`); }
     finally { setLoading(false); }
   };
 
-  const totalValue = portfolio.reduce((s, p) => s + (p.quantity * p.avg_price), 0);
+  const totalValue = portfolio.reduce((s, p) => s + p.quantity * p.avg_price, 0);
 
   return (
     <div>
       <div className="port-controls">
-        <input
-          value={userId} onChange={e => setUserId(e.target.value)}
-          placeholder="User ID" className="input-base" style={{ width: 110 }}
-        />
-        <input
-          value={profileUrl} onChange={e => setProfile(e.target.value)}
-          placeholder="Steam profile URL" className="input-base input-flex"
-        />
+        <input value={userId} onChange={e => setUserId(e.target.value)}
+          placeholder="User ID" className="input-base" style={{ width: 110 }} />
+        <input value={profileUrl} onChange={e => setProfile(e.target.value)}
+          placeholder="Steam profile URL" className="input-base input-flex" />
         <button onClick={importFromProfile} disabled={loading} className="btn-primary">
           {loading ? 'Importing…' : 'Import'}
         </button>
@@ -265,22 +248,17 @@ function PortfolioView() {
           {loading ? 'Loading…' : 'Load saved'}
         </button>
       </div>
-
       {msg && <div className="port-msg">{msg}</div>}
-
       {portfolio.length > 0 && (
         <>
           <div className="port-total">
-            Portfolio value:{' '}
-            <strong style={{ color: 'var(--accent)' }}>
+            Portfolio value: <strong style={{ color: 'var(--accent)' }}>
               ${totalValue.toLocaleString('en-US', { maximumFractionDigits: 2 })}
             </strong>
           </div>
           <div className="tbl-head port-grid">
-            <span>Item</span>
-            <span className="tar">Qty</span>
-            <span className="tar">Avg buy</span>
-            <span className="tar">Total</span>
+            <span>Item</span><span className="tar">Qty</span>
+            <span className="tar">Avg buy</span><span className="tar">Total</span>
           </div>
           {portfolio.map(p => (
             <div key={p.item_name} className="tbl-row port-grid">
@@ -292,15 +270,14 @@ function PortfolioView() {
           ))}
         </>
       )}
-
       {!portfolio.length && !loading && (
-        <div className="empty-state">Import an inventory snapshot or load a saved portfolio.</div>
+        <div className="empty-state">Import an inventory or load a saved portfolio.</div>
       )}
     </div>
   );
 }
 
-// ─── App (root) ───────────────────────────────────────────────────────────────
+// ─── App ──────────────────────────────────────────────────────────────────────
 const TABS = [
   { id: 'inventory', emoji: '📦', label: 'Inventory', placeholder: 'Steam profile URL…' },
   { id: 'pump',      emoji: '🐠', label: 'Pump',      placeholder: 'SteamDT.com item URL…' },
@@ -308,16 +285,16 @@ const TABS = [
 ];
 
 export default function App() {
-  const [view, setView]         = useState('inventory');
-  const [invUrl, setInvUrl]     = useState('https://steamcommunity.com/id/NotnFaZe');
-  const [pumpUrl, setPumpUrl]   = useState('');
-  const [invTrigger, setInvTrigger]   = useState(null);
-  const [pumpTrigger, setPumpTrigger] = useState(null);
+  const [view, setView]                   = useState('inventory');
+  const [invUrl, setInvUrl]               = useState('https://steamcommunity.com/id/NotnFaZe');
+  const [pumpUrl, setPumpUrl]             = useState('');
+  const [invTrigger, setInvTrigger]       = useState(null);
+  const [pumpTrigger, setPumpTrigger]     = useState(null);
 
-  const activeTab   = TABS.find(t => t.id === view);
-  const showInput   = activeTab?.placeholder !== null;
-  const currentUrl  = view === 'pump' ? pumpUrl  : invUrl;
-  const setUrl      = view === 'pump' ? setPumpUrl : setInvUrl;
+  const activeTab  = TABS.find(t => t.id === view);
+  const showInput  = activeTab?.placeholder !== null;
+  const currentUrl = view === 'pump' ? pumpUrl : invUrl;
+  const setUrl     = view === 'pump' ? setPumpUrl : setInvUrl;
 
   const handleAction = () => {
     const ts = Date.now();
@@ -327,10 +304,8 @@ export default function App() {
 
   return (
     <>
-      {/* ── Header ── */}
       <header className="header">
         <div className="header-inner">
-
           <div className="logo">
             <div className="logo-icon">🔥</div>
             <div>
@@ -338,19 +313,14 @@ export default function App() {
               <div className="logo-sub">CS2 TRACKING SUITE</div>
             </div>
           </div>
-
           <nav className="nav-tabs">
             {TABS.map(t => (
-              <button
-                key={t.id}
-                onClick={() => setView(t.id)}
-                className={`nav-tab${view === t.id ? ' active' : ''}`}
-              >
+              <button key={t.id} onClick={() => setView(t.id)}
+                className={`nav-tab${view === t.id ? ' active' : ''}`}>
                 {t.emoji} {t.label}
               </button>
             ))}
           </nav>
-
           {showInput && (
             <div className="search-bar">
               <input
@@ -368,7 +338,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* ── Content ── */}
       <main className="main">
         <div className="card">
           {view === 'inventory' && <InventoryView triggerScan={invTrigger} />}
